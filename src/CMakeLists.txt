@@ -45,32 +45,74 @@ if(enable_valgrind)
     list(APPEND C_SRCS valgrind.c)
 endif()
 
-# Bring sources into an object library so we can include elsewhere
-# and also so we don't end up compiling the same code twice for no reason.
-add_library(${PROJECT_NAME} OBJECT ${JEMALLOC_CMAKE_SOURCES})
+add_library(${PROJECT_NAME} ${JEMALLOC_CMAKE_SOURCES})
 
-# The original library, delivery product
-add_library(${PROJECT_NAME}-static STATIC $<TARGET_OBJECTS:${PROJECT_NAME}>)
+set(jemalloc_inc_dir "${JEMALLOC_TOP_DIR}/include")
+target_include_directories(${PROJECT_NAME}
+  PUBLIC
+  "$<BUILD_INTERFACE:${jemalloc_inc_dir}>"
+  )
 
-# Now add shared library. Needed for integration tests
-# and a benchmark
-add_library(${PROJECT_NAME}-shared SHARED $<TARGET_OBJECTS:${PROJECT_NAME}>)
+if(MSVC)
+  target_include_directories(${PROJECT_NAME}
+    PUBLIC
+    "$<BUILD_INTERFACE:${jemalloc_inc_dir}/msvc_compat>"
+    )
+endif()
 
 # Need to export from DLL
-target_compile_definitions(${PROJECT_NAME}-shared PRIVATE DLLEXPORT)
+target_compile_definitions(${PROJECT_NAME} PRIVATE DLLEXPORT)
 
 if(with-jemalloc-prefix)
-    target_compile_definitions(${PROJECT_NAME}-static PRIVATE JEMALLOC_MANGLE)
-    target_compile_definitions(${PROJECT_NAME}-shared PRIVATE JEMALLOC_MANGLE)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE JEMALLOC_MANGLE)
 endif()
 
-if(enable-prefixed-jemalloc-library)
-    ############################################################################
-    # JET prefixed version of jemalloc library
-    # necessary to compliment non-exported symbols
-    # Note: we must references the SOURCES here and not the OBJECT library
-    #       because we must re-build with different namespace options.
-    add_library(${PROJECT_NAME}-jet-static STATIC ${JEMALLOC_CMAKE_SOURCES})
-    target_compile_definitions(${PROJECT_NAME}-jet-static PRIVATE "${C_JETLIB_DEFS}")
-endif()
+### Install ###
+set(generated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
+set(config_install_dir "lib/cmake/${PROJECT_NAME}")
+set(include_install_dir "include")
+
+set(version_config "${generated_dir}/${PROJECT_NAME}ConfigVersion.cmake")
+set(project_config "${generated_dir}/${PROJECT_NAME}Config.cmake")
+set(targets_export_name "${PROJECT_NAME}Targets")
+set(namespace "${PROJECT_NAME}::")
+
+include(CMakePackageConfigHelpers)
+write_basic_package_version_file(
+  "${version_config}" COMPATIBILITY SameMajorVersion
+  )
+
+# Note: use 'targets_export_name'
+configure_package_config_file(
+  "${PROJECT_SOURCE_DIR}/cmake/Config.cmake.in"
+  "${project_config}"
+  INSTALL_DESTINATION "${config_install_dir}"
+  )
+
+install(
+  TARGETS ${PROJECT_NAME}
+  EXPORT "${targets_export_name}"
+  LIBRARY DESTINATION "lib"
+  ARCHIVE DESTINATION "lib"
+  RUNTIME DESTINATION "bin"
+  INCLUDES DESTINATION "${include_install_dir}"
+  )
+
+install(
+  DIRECTORY "${JEMALLOC_TOP_DIR}/include/jemalloc" # No trailing slash
+  DESTINATION "${include_install_dir}"
+  FILES_MATCHING PATTERN "*.h"
+  PATTERN "*internal*" EXCLUDE
+  )
+
+install(
+  FILES "${project_config}" "${version_config}"
+  DESTINATION "${config_install_dir}"
+  )
+
+install(
+  EXPORT "${targets_export_name}"
+  NAMESPACE "${namespace}"
+  DESTINATION "${config_install_dir}"
+  )
