@@ -45,19 +45,23 @@ if(enable_valgrind)
     list(APPEND C_SRCS valgrind.c)
 endif()
 
-add_library(${PROJECT_NAME} ${JEMALLOC_CMAKE_SOURCES})
+# Bring sources into an object library so we can include elsewhere
+# and also so we don't end up compiling the same code twice for no reason.
+add_library(${PROJECT_NAME}-obj OBJECT ${JEMALLOC_CMAKE_SOURCES})
+target_include_directories(${PROJECT_NAME}-obj PUBLIC "$<BUILD_INTERFACE:${JEMALLOC_INC_DIR}>")
 
-set(jemalloc_inc_dir "${JEMALLOC_TOP_DIR}/include")
-target_include_directories(${PROJECT_NAME}
-  PUBLIC
-  "$<BUILD_INTERFACE:${jemalloc_inc_dir}>"
-  )
+# The original library, delivery product: static or shared via BUILD_SHARED_LIBS
+add_library(${PROJECT_NAME} $<TARGET_OBJECTS:${PROJECT_NAME}-obj>)
+target_include_directories(${PROJECT_NAME} PUBLIC "$<BUILD_INTERFACE:${JEMALLOC_INC_DIR}>")
+
+if (JEMALLOC_BUILD_TESTS)
+    # Now add shared library. Needed for integration tests and a benchmark  
+    add_library(${PROJECT_NAME}-shared SHARED $<TARGET_OBJECTS:${PROJECT_NAME}-obj>)
+    target_include_directories(${PROJECT_NAME}-shared PUBLIC "$<BUILD_INTERFACE:${JEMALLOC_INC_DIR}>")
+endif()
 
 if(MSVC)
-  target_include_directories(${PROJECT_NAME}
-    PUBLIC
-    "$<BUILD_INTERFACE:${jemalloc_inc_dir}/msvc_compat>"
-    )
+  target_include_directories(${PROJECT_NAME} PUBLIC "$<BUILD_INTERFACE:${JEMALLOC_INC_DIR}>")
 endif()
 
 # Need to export from DLL
@@ -65,6 +69,17 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE DLLEXPORT)
 
 if(with-jemalloc-prefix)
     target_compile_definitions(${PROJECT_NAME} PRIVATE JEMALLOC_MANGLE)
+endif()
+
+if(enable-prefixed-jemalloc-library)
+   ############################################################################
+   # JET prefixed version of jemalloc library
+   # necessary to compliment non-exported symbols
+   # Note: we must references the SOURCES here and not the OBJECT library
+   #       because we must re-build with different namespace options.
+   add_library(${PROJECT_NAME}-jet-static STATIC ${JEMALLOC_CMAKE_SOURCES})
+   target_compile_definitions(${PROJECT_NAME}-jet-static PRIVATE "${C_JETLIB_DEFS}")
+   target_include_directories(${PROJECT_NAME}-jet-static PUBLIC "$<BUILD_INTERFACE:${JEMALLOC_INC_DIR}>")
 endif()
 
 ### Install ###
@@ -80,7 +95,9 @@ set(namespace "${PROJECT_NAME}::")
 
 include(CMakePackageConfigHelpers)
 write_basic_package_version_file(
-  "${version_config}" COMPATIBILITY SameMajorVersion
+  "${version_config}"
+  VERSION ${jemalloc_version}
+  COMPATIBILITY SameMajorVersion
   )
 
 # Note: use 'targets_export_name'
