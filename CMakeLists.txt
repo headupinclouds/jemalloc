@@ -4,7 +4,7 @@
 
 cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
 
-project(jemalloc VERSION 0.0.0 LANGUAGES C)
+project(jemalloc VERSION 5.0.1 LANGUAGES C)
 
 set(JEMALLOC_TOP_DIR "${CMAKE_CURRENT_LIST_DIR}")
 
